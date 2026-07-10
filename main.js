@@ -285,7 +285,10 @@
       extinctionElapsed: 0,
       nextSeed: null,
       extinctionPlan: createExtinctionPlan(rng),
-      disasterCooldown: randInt(rng, 80, 180),
+      disasterCooldown: randInt(rng, 180, 320),
+      namedLifeYear: null,
+      civilizationEverExisted: false,
+      civilizationCollapsed: false,
     };
 
     addDrama(
@@ -847,7 +850,12 @@
 
   function checkDisasters(w, years) {
     if (w.phase !== "alive") return;
-    if (!w.cast.length) return;
+    if (!w.eventFlags.has("namedLife")) return;
+    if (w.namedLifeYear === null) return;
+
+    // 名前付き個体が現れてから120年間は、大災害を発生させない。
+    // 誕生直後の文明が一瞬で消えるのを防ぐ。
+    if (w.year - w.namedLifeYear < 120) return;
 
     w.disasterCooldown -= years;
 
@@ -856,20 +864,92 @@
     const type = pick(w.rng, DISASTERS);
     triggerDisaster(w, type);
 
-    w.disasterCooldown = randInt(w.rng, 90, 260);
+    w.disasterCooldown = randInt(w.rng, 160, 420);
   }
 
   function checkCivilizationCollapse(w) {
     const s = w.settlement;
 
-    // 生命誕生前・名前付き個体の出現前は、人口0でも正常な状態。
-    // 文明崩壊判定は、名前付き個体が一度誕生した後だけ行う。
-    if (!w.eventFlags.has("namedLife")) {
-      return;
-    }
+    // 生命誕生前・名前付き個体の出現前は滅亡判定を行わない。
+    if (!w.eventFlags.has("namedLife")) return;
 
-    if (s.population <= 0 || !w.cast.some((person) => person.alive)) {
-      beginExtinction(w, "文明と名前を持つ個体がすべて失われた");
+    const livingCharacters = w.cast.filter((person) => person.alive);
+
+    // 個体や文明が滅びても、世界・生態系までは終了させない。
+    // 文明だけを崩壊状態に戻し、後の再興を待つ。
+    if (s.population <= 0 || livingCharacters.length === 0) {
+      if (!w.civilizationCollapsed) {
+        w.civilizationCollapsed = true;
+        s.population = 0;
+        s.stage = "文明の消滅";
+        s.technology = "失われた技術";
+        s.stability = 0;
+        s.industry = 0;
+        s.knowledge *= 0.25;
+
+        addNews(
+          w,
+          "death",
+          "文明が途絶えた",
+          "名前を持つ個体はいなくなったが、世界と生命の循環は続いている。"
+        );
+
+        addDrama(
+          w,
+          "death",
+          [],
+          "住居と墓標だけが残った。森、水辺、微小な生命は静かに変化を続けている。",
+          "文明の終わり"
+        );
+      }
+
+      // 生態系が残っていれば、一定期間後に別の知性種が再び現れる可能性を持たせる。
+      if (
+        w.biodiversity >= 8 &&
+        w.year - (w.namedLifeYear || 0) >= 220 &&
+        w.rng() < 0.0008
+      ) {
+        w.cast = [];
+        w.speciesType = pick(w.rng, ["human", "beast", "bird", "plant", "fungus", "aquatic"]);
+        const namesBySpecies = {
+          human: ["ミナ", "カル", "セナ", "リオ", "トワ", "イラ"],
+          beast: ["ガウ", "ルゥ", "キバ", "ネネ", "モク", "ハク"],
+          bird: ["ソラ", "カゼ", "ツバサ", "アオ", "ヒナ", "レイ"],
+          plant: ["若枝", "深根", "白花", "木環", "緑芽", "梢"],
+          fungus: ["胞子七", "環菌", "白傘", "深糸", "月菌", "苔環"],
+          aquatic: ["ミオ", "ナギ", "アワ", "シオ", "ウミ", "ルカ"],
+        };
+        w.speciesNames = namesBySpecies[w.speciesType];
+        spawnNamedCast(w);
+
+        s.population = randInt(w.rng, 10, 24);
+        s.stage = "新しい小さな集まり";
+        s.technology = "採集と簡単な道具";
+        s.stability = randInt(w.rng, 45, 72);
+        s.food = randInt(w.rng, 25, 50);
+        s.resources = randInt(w.rng, 20, 48);
+        s.knowledge = randInt(w.rng, 0, 8);
+
+        w.namedLifeYear = w.year;
+        w.civilizationCollapsed = false;
+        w.disasterCooldown = randInt(w.rng, 180, 320);
+
+        addNews(
+          w,
+          "birth",
+          "新しい知性種が現れた",
+          "かつての文明跡の近くで、別の名前を持つ個体たちが集まり始めた。"
+        );
+
+        addDrama(
+          w,
+          "birth",
+          [w.cast[0]],
+          `${w.cast[0].name}は、誰が作ったか分からない古い墓標を見つめた。`,
+          "再び始まる物語"
+        );
+      }
+
       return;
     }
 
@@ -891,7 +971,7 @@
       addDrama(
         w,
         "death",
-        w.cast.filter((person) => person.alive).slice(0, 2),
+        livingCharacters.slice(0, 2),
         "かつての仕組みは失われた。それでも、生き残った者は集まり直した。",
         "文明の崩壊"
       );
@@ -983,6 +1063,9 @@
     if (w.year >= 105 && !w.eventFlags.has("namedLife")) {
       w.eventFlags.add("namedLife");
       w.lifeLevel = 3;
+      w.namedLifeYear = w.year;
+      w.civilizationEverExisted = true;
+      w.civilizationCollapsed = false;
       spawnNamedCast(w);
 
       w.settlement.population = randInt(w.rng, 12, 30);
