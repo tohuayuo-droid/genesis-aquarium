@@ -183,19 +183,21 @@
   }
 
   function createExtinctionPlan(rng) {
-    const longLived = rng() < 0.2;
-    const earliestYear = longLived
-      ? randInt(rng, 1300, 2200)
-      : randInt(rng, 650, 1300);
+    // x5速度でも数分〜十数分は世界が続くようにする。
+    // 世界そのものの終焉は、文明の崩壊よりずっと後にだけ起こる。
+    const veryLongLived = rng() < 0.28;
+    const earliestYear = veryLongLived
+      ? randInt(rng, 5200, 9000)
+      : randInt(rng, 2400, 5200);
 
     return {
       earliestYear,
-      latestYear: longLived
-        ? randInt(rng, 2600, 4800)
-        : randInt(rng, earliestYear + 600, earliestYear + 2200),
-      riskPerYear: longLived
-        ? 0.00015 + rng() * 0.00035
-        : 0.00035 + rng() * 0.00075,
+      latestYear: veryLongLived
+        ? randInt(rng, 10000, 18000)
+        : randInt(rng, earliestYear + 2200, earliestYear + 7000),
+      riskPerYear: veryLongLived
+        ? 0.000015 + rng() * 0.000025
+        : 0.000025 + rng() * 0.00006,
       cause: pick(rng, [
         "長期的な気候崩壊",
         "連続する巨大噴火",
@@ -1184,7 +1186,14 @@
 
     const plan = world.extinctionPlan;
 
+    // 世界終焉は、名前付き生命が誕生してから少なくとも800年後、
+    // かつSeed固有の最短寿命を超えた後だけ判定する。
+    const civilizationAge =
+      world.namedLifeYear === null ? 0 : world.year - world.namedLifeYear;
+
     if (
+      world.eventFlags.has("namedLife") &&
+      civilizationAge >= 800 &&
       !world.eventFlags.has("extinction") &&
       world.year >= plan.earliestYear
     ) {
