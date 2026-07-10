@@ -862,6 +862,12 @@
   function checkCivilizationCollapse(w) {
     const s = w.settlement;
 
+    // 生命誕生前・名前付き個体の出現前は、人口0でも正常な状態。
+    // 文明崩壊判定は、名前付き個体が一度誕生した後だけ行う。
+    if (!w.eventFlags.has("namedLife")) {
+      return;
+    }
+
     if (s.population <= 0 || !w.cast.some((person) => person.alive)) {
       beginExtinction(w, "文明と名前を持つ個体がすべて失われた");
       return;
