@@ -16,22 +16,33 @@
   const castState = document.getElementById("castState");
   const worldSummary = document.getElementById("worldSummary");
 
-  const TILE = 40;
   const COLS = 24;
   const ROWS = 14;
+  const DRAMA_AUTO_SECONDS = 8;
+  const WORLD_RESTART_DELAY = 8;
 
   const ICONS = {
-    human: "🧑", beast: "🦊", bird: "🦅", plant: "🌿", fungus: "🍄", aquatic: "🪼",
-    birth: "✨", conflict: "⚔️", discovery: "💡", disaster: "☄️", society: "🏘️", nature: "🌱", death: "🕯️"
+    human: "🧑",
+    beast: "🦊",
+    bird: "🦅",
+    plant: "🌿",
+    fungus: "🍄",
+    aquatic: "🪼",
+    birth: "✨",
+    conflict: "⚔️",
+    discovery: "💡",
+    disaster: "🌪️",
+    society: "🏘️",
+    nature: "🌱",
+    death: "🕯️",
   };
+
+  const DISASTERS = ["war", "plague", "earthquake", "fire", "typhoon"];
 
   let world = null;
   let running = true;
   let lastTime = performance.now();
-  let accumulator = 0;
   let dramaAutoElapsed = 0;
-  const DRAMA_AUTO_SECONDS = 8;
-  const WORLD_RESTART_DELAY = 8;
 
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -44,101 +55,186 @@
     };
   }
 
-  function randInt(rng, min, max) { return Math.floor(rng() * (max - min + 1)) + min; }
-  function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function randInt(rng, min, max) {
+    return Math.floor(rng() * (max - min + 1)) + min;
+  }
+
+  function pick(rng, array) {
+    return array[Math.floor(rng() * array.length)];
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
 
   function randomSeed() {
-    if (crypto?.getRandomValues) {
-      const a = new Uint32Array(1);
-      crypto.getRandomValues(a);
-      return a[0] || 1;
+    if (window.crypto && crypto.getRandomValues) {
+      const values = new Uint32Array(1);
+      crypto.getRandomValues(values);
+      return values[0] || 1;
     }
     return Math.floor(Math.random() * 4294967295) || 1;
   }
 
-  function createWorld(seed) {
-    const rng = mulberry32(seed);
+  function findLandCells(tiles) {
+    const cells = [];
+    for (let y = 1; y < ROWS - 1; y++) {
+      for (let x = 1; x < COLS - 1; x++) {
+        if (tiles[y][x].type !== "water" && tiles[y][x].type !== "mountain") {
+          cells.push({ x, y });
+        }
+      }
+    }
+    return cells;
+  }
 
-    // Seedごとに地形の骨格そのものを変える。
-    // 海の多さ、島の中心、山脈、森の密度、湖の位置が毎回変わる。
-    const terrainProfile = {
+  function generateTerrain(seed, rng) {
+    const profile = {
       seaLevel: 0.34 + rng() * 0.28,
-      forestBias: 0.20 + rng() * 0.34,
-      mountainBias: 0.68 + rng() * 0.20,
+      forestBias: 0.2 + rng() * 0.34,
+      mountainBias: 0.68 + rng() * 0.2,
       islandCount: randInt(rng, 2, 5),
       ridgeAngle: rng() * Math.PI,
-      ridgeOffset: rng() * 2 - 1
+      ridgeOffset: rng() * 2 - 1,
     };
-    const islands = Array.from({ length: terrainProfile.islandCount }, () => ({
+
+    const islands = Array.from({ length: profile.islandCount }, () => ({
       x: rng() * (COLS - 1),
       y: rng() * (ROWS - 1),
-      radiusX: 3.8 + rng() * 7.0,
+      radiusX: 3.8 + rng() * 7,
       radiusY: 2.8 + rng() * 4.8,
-      height: 0.72 + rng() * 0.65
+      height: 0.72 + rng() * 0.65,
     }));
-    const lakeCenters = Array.from({ length: randInt(rng, 0, 3) }, () => ({
+
+    const lakes = Array.from({ length: randInt(rng, 0, 3) }, () => ({
       x: randInt(rng, 3, COLS - 4),
       y: randInt(rng, 3, ROWS - 4),
-      radius: 1.2 + rng() * 1.8
+      radius: 1.2 + rng() * 1.8,
     }));
 
     const tiles = [];
+
     for (let y = 0; y < ROWS; y++) {
       const row = [];
+
       for (let x = 0; x < COLS; x++) {
         let height = -0.42;
+
         for (const island of islands) {
           const dx = (x - island.x) / island.radiusX;
           const dy = (y - island.y) / island.radiusY;
           height = Math.max(height, island.height - (dx * dx + dy * dy));
         }
-        const ridge = Math.sin((x * Math.cos(terrainProfile.ridgeAngle) + y * Math.sin(terrainProfile.ridgeAngle)) * 0.72 + terrainProfile.ridgeOffset * 4);
-        const noise = (rng() - 0.5) * 0.42 + Math.sin(x * 0.91 + y * 0.37 + seed % 17) * 0.08;
-        height += ridge * 0.10 + noise;
 
-        let type = height < terrainProfile.seaLevel ? "water" : "grass";
+        const ridge = Math.sin(
+          (x * Math.cos(profile.ridgeAngle) + y * Math.sin(profile.ridgeAngle)) * 0.72 +
+            profile.ridgeOffset * 4
+        );
+
+        height += ridge * 0.1;
+        height += (rng() - 0.5) * 0.42;
+        height += Math.sin(x * 0.91 + y * 0.37 + (seed % 17)) * 0.08;
+
+        let type = height < profile.seaLevel ? "water" : "grass";
+
         if (type !== "water") {
           const mountainScore = height + ridge * 0.12 + rng() * 0.12;
-          if (mountainScore > terrainProfile.mountainBias) type = "mountain";
-          else {
-            const moisture = (Math.sin(x * 0.33 + seed % 13) + Math.cos(y * 0.46 + seed % 19)) * 0.16 + rng();
-            if (moisture < terrainProfile.forestBias) type = "forest";
+
+          if (mountainScore > profile.mountainBias) {
+            type = "mountain";
+          } else {
+            const moisture =
+              (Math.sin(x * 0.33 + (seed % 13)) +
+                Math.cos(y * 0.46 + (seed % 19))) *
+                0.16 +
+              rng();
+
+            if (moisture < profile.forestBias) {
+              type = "forest";
+            }
           }
         }
 
         if (type !== "mountain") {
-          for (const lake of lakeCenters) {
+          for (const lake of lakes) {
             const dx = x - lake.x;
             const dy = y - lake.y;
-            if (dx * dx + dy * dy < lake.radius * lake.radius) { type = "water"; break; }
+
+            if (dx * dx + dy * dy < lake.radius * lake.radius) {
+              type = "water";
+              break;
+            }
           }
         }
 
-        row.push({ type, fertility: rng(), heat: rng() });
+        row.push({
+          type,
+          originalType: type,
+          fertility: rng(),
+          heat: rng(),
+          damage: 0,
+        });
       }
+
       tiles.push(row);
     }
 
-    const speciesType = pick(rng, ["human", "beast", "bird", "plant", "fungus", "aquatic"]);
-    const names = {
+    return tiles;
+  }
+
+  function createExtinctionPlan(rng) {
+    const longLived = rng() < 0.2;
+    const earliestYear = longLived
+      ? randInt(rng, 1300, 2200)
+      : randInt(rng, 650, 1300);
+
+    return {
+      earliestYear,
+      latestYear: longLived
+        ? randInt(rng, 2600, 4800)
+        : randInt(rng, earliestYear + 600, earliestYear + 2200),
+      riskPerYear: longLived
+        ? 0.00015 + rng() * 0.00035
+        : 0.00035 + rng() * 0.00075,
+      cause: pick(rng, [
+        "長期的な気候崩壊",
+        "連続する巨大噴火",
+        "海と大気の急変",
+        "生態系の連鎖崩壊",
+        "恒星活動の異常",
+        "資源循環の停止",
+      ]),
+    };
+  }
+
+  function createWorld(seed) {
+    const rng = mulberry32(seed);
+    const tiles = generateTerrain(seed, rng);
+    const landCells = findLandCells(tiles);
+
+    if (!landCells.length) {
+      tiles[Math.floor(ROWS / 2)][Math.floor(COLS / 2)].type = "grass";
+      landCells.push({ x: Math.floor(COLS / 2), y: Math.floor(ROWS / 2) });
+    }
+
+    const home = pick(rng, landCells);
+    const speciesType = pick(rng, [
+      "human",
+      "beast",
+      "bird",
+      "plant",
+      "fungus",
+      "aquatic",
+    ]);
+
+    const speciesNames = {
       human: ["ミナ", "カル", "セナ", "リオ", "トワ", "イラ"],
       beast: ["ガウ", "ルゥ", "キバ", "ネネ", "モク", "ハク"],
       bird: ["ソラ", "カゼ", "ツバサ", "アオ", "ヒナ", "レイ"],
       plant: ["若枝", "深根", "白花", "木環", "緑芽", "梢"],
       fungus: ["胞子七", "環菌", "白傘", "深糸", "月菌", "苔環"],
-      aquatic: ["ミオ", "ナギ", "アワ", "シオ", "ウミ", "ルカ"]
+      aquatic: ["ミオ", "ナギ", "アワ", "シオ", "ウミ", "ルカ"],
     }[speciesType];
-
-    const landCells = [];
-    for (let y = 2; y < ROWS - 2; y++) for (let x = 2; x < COLS - 2; x++) {
-      if (tiles[y][x].type !== "water" && tiles[y][x].type !== "mountain") landCells.push({x,y});
-    }
-    const home = pick(rng, landCells);
-
-    // 世界の開始時点では、名前付き個体は存在しない。
-    // 環境が整い、生命が生まれ、知性を持つ個体が現れた時点で初めて生成する。
-    const cast = [];
 
     const settlement = {
       name: `${pick(rng, ["灰樹", "青潮", "風環", "深根", "白雲", "赤土"])}の共同体`,
@@ -146,248 +242,954 @@
       y: home.y,
       population: 0,
       stage: "生命前",
-      culture: pick(rng, ["記憶を歌で残す", "季節ごとに移動する", "根や巣で情報を共有する", "星の位置で約束を決める"]),
+      culture: pick(rng, [
+        "記憶を歌で残す",
+        "季節ごとに移動する",
+        "根や巣で情報を共有する",
+        "星の位置で約束を決める",
+        "死者の名前を地形に刻む",
+        "争いを物語として保存する",
+      ]),
       technology: "なし",
-      stability: randInt(rng, 58, 88)
+      stability: randInt(rng, 58, 88),
+      food: randInt(rng, 25, 50),
+      resources: randInt(rng, 25, 50),
+      knowledge: 0,
+      industry: 0,
+      military: 0,
+      medicine: 0,
     };
 
     const w = {
-      seed, rng, tiles, year: 0, season: 0, temperature: randInt(rng, 8, 28),
+      seed,
+      rng,
+      tiles,
+      year: 0,
+      season: 0,
+      temperature: randInt(rng, 8, 28),
       biodiversity: randInt(rng, 2, 12),
-      cast, speciesType, speciesNames: names, home,
-      graves: [], lifeLevel: 0,
-      settlement, news: [], dramas: [], dramaIndex: 0,
-      eventFlags: new Set(), meteor: null, selectedCell: null,
-      phase: "alive", extinctionElapsed: 0, nextSeed: null,
-      extinctionPlan: createExtinctionPlan(rng)
+      lifeLevel: 0,
+      cast: [],
+      speciesType,
+      speciesNames,
+      home,
+      graves: [],
+      settlement,
+      news: [],
+      dramas: [],
+      dramaIndex: 0,
+      eventFlags: new Set(),
+      meteor: null,
+      selectedCell: null,
+      phase: "alive",
+      extinctionElapsed: 0,
+      nextSeed: null,
+      extinctionPlan: createExtinctionPlan(rng),
+      disasterCooldown: randInt(rng, 80, 180),
     };
 
-    addDrama(w, "nature", [], "風と水だけが動いている。まだ、この世界に名前を持つものはいない。", "無生物の世界");
-    addNews(w, "nature", "新しい世界が形成された", "岩、水、大気がゆっくり循環し始めた。生命はまだ存在しない。");
+    addDrama(
+      w,
+      "nature",
+      [],
+      "風と水だけが動いている。まだ、この世界に名前を持つものはいない。",
+      "無生物の世界"
+    );
+
+    addNews(
+      w,
+      "nature",
+      "新しい世界が形成された",
+      "岩、水、大気がゆっくり循環し始めた。生命はまだ存在しない。"
+    );
+
     return w;
   }
 
-
-  function createExtinctionPlan(rng) {
-    const longLived = rng() < 0.18;
-    const earliestYear = longLived ? randInt(rng, 900, 1500) : randInt(rng, 320, 760);
-    const latestYear = longLived ? randInt(rng, 1800, 3200) : randInt(rng, earliestYear + 260, earliestYear + 1100);
-    return {
-      earliestYear,
-      latestYear,
-      riskPerYear: longLived ? 0.0008 + rng() * 0.0018 : 0.0018 + rng() * 0.0048,
-      cause: pick(rng, [
-        "長期的な気候崩壊",
-        "連続する巨大噴火",
-        "海と大気の急変",
-        "生態系の連鎖崩壊",
-        "恒星活動の異常",
-        "資源循環の停止"
-      ])
-    };
-  }
-
-  function beginExtinction(w) {
-    if (w.phase === "extinction") return;
-    w.eventFlags.add("extinction");
-    w.phase = "extinction";
-    w.extinctionElapsed = 0;
-    w.nextSeed = randomSeed();
-    w.cast.forEach(cast => { if (w.rng() < 0.82) cast.alive = false; });
-    w.settlement.population = Math.max(0, Math.floor(w.settlement.population * 0.06));
-    w.settlement.stability = 0;
-    w.settlement.stage = "崩壊跡";
-    w.biodiversity = Math.max(0, Math.floor(w.biodiversity * 0.08));
-    addNews(w, "death", "世界規模の終焉", `${w.extinctionPlan.cause}により、この世界の営みは静かに途切れた。`);
-    const survivors = w.cast.filter(x => x.alive);
-    addDrama(w, "death", survivors.length ? survivors.slice(0, 2) : [w.cast[0]], "空は灰色に沈み、残された名前も風景の中へ消えていった。", "世界の終わり");
-  }
-
   function addNews(w, type, title, text) {
-    w.news.push({ id: `${w.year}-${w.news.length}-${type}`, year: w.year, type, title, text });
-    if (w.news.length > 120) w.news.shift();
+    w.news.push({
+      id: `${Math.floor(w.year)}-${w.news.length}-${type}`,
+      year: Math.floor(w.year),
+      type,
+      title,
+      text,
+    });
+
+    if (w.news.length > 120) {
+      w.news.shift();
+    }
   }
 
   function addDrama(w, type, participants, text, title) {
-    w.dramas.push({ type, participants: participants.map(p => p.id), text, title, year: w.year });
-    if (w.dramas.length > 24) w.dramas.shift();
+    const safeParticipants = (participants || []).filter(Boolean);
+
+    w.dramas.push({
+      type,
+      participants: safeParticipants.map((person) => person.id),
+      text,
+      title,
+      year: Math.floor(w.year),
+    });
+
+    if (w.dramas.length > 30) {
+      w.dramas.shift();
+    }
+
     w.dramaIndex = w.dramas.length - 1;
     dramaAutoElapsed = 0;
   }
 
-  function spawnNamedCast(w) {
-    if (w.cast.length) return;
-    const roles = ["探索者", "育て手", "記録者", "守り手"];
-    w.cast = w.speciesNames.slice(0, 4).map((name, i) => ({
-      id: `c${i}`,
-      name,
-      species: w.speciesType,
-      role: roles[i],
-      age: randInt(w.rng, 12, 46),
-      x: clamp(w.home.x + randInt(w.rng, -2, 2), 1, COLS - 2),
-      y: clamp(w.home.y + randInt(w.rng, -2, 2), 1, ROWS - 2),
-      relation: i === 0 ? `友人：${w.speciesNames[1]}` : i === 1 ? `家族：${w.speciesNames[0]}` : i === 2 ? `対立：${w.speciesNames[3]}` : `恩人：${w.speciesNames[1]}`,
-      mood: pick(w.rng, ["穏やか", "好奇心", "警戒", "希望"]),
-      alive: true
-    }));
+  function createPersonality(rng) {
+    return {
+      curiosity: randInt(rng, 0, 100),
+      aggression: randInt(rng, 0, 100),
+      empathy: randInt(rng, 0, 100),
+      sociability: randInt(rng, 0, 100),
+      caution: randInt(rng, 0, 100),
+      adaptability: randInt(rng, 0, 100),
+    };
   }
 
-  function triggerMilestones() {
-    const w = world;
-    const r = w.rng;
+  function decideRole(personality) {
+    const scores = {
+      探索者: personality.curiosity,
+      守り手: personality.caution,
+      仲介者: personality.empathy,
+      まとめ役: personality.sociability,
+      戦士: personality.aggression,
+      開拓者: personality.adaptability,
+    };
 
+    return Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+  }
+
+  function spawnNamedCast(w) {
+    if (w.cast.length) return;
+
+    w.cast = w.speciesNames.slice(0, 4).map((name, index) => {
+      const personality = createPersonality(w.rng);
+
+      return {
+        id: `c${index}`,
+        name,
+        species: w.speciesType,
+        personality,
+        role: decideRole(personality),
+        age: randInt(w.rng, 12, 46),
+        x: clamp(w.home.x + randInt(w.rng, -2, 2), 1, COLS - 2),
+        y: clamp(w.home.y + randInt(w.rng, -2, 2), 1, ROWS - 2),
+        relation: "まだ関係はない",
+        mood: "観察中",
+        alive: true,
+        nextActionYear: w.year + randInt(w.rng, 8, 30),
+      };
+    });
+  }
+
+  function changeStage(w, stage, message, technology) {
+    const s = w.settlement;
+
+    if (s.stage === stage) return;
+
+    s.stage = stage;
+
+    if (technology) {
+      s.technology = technology;
+    }
+
+    const participants = w.cast.filter((person) => person.alive).slice(0, 2);
+
+    addNews(w, "discovery", `${stage}へ移行`, message);
+    addDrama(w, "discovery", participants, message, `${stage}の始まり`);
+  }
+
+  function advanceCivilizationStage(w) {
+    const s = w.settlement;
+
+    if (!w.cast.length || s.population <= 0) return;
+
+    if (
+      s.population >= 20 &&
+      (s.stage === "小さな集まり" || s.stage === "知性の芽生え")
+    ) {
+      changeStage(w, "定住集落", "住居と食料庫が作られた。", "保存食と住居");
+    }
+
+    if (
+      s.population >= 70 &&
+      s.food >= 38 &&
+      s.knowledge >= 12 &&
+      s.stage === "定住集落"
+    ) {
+      changeStage(w, "農耕社会", "作物を育て、食料を蓄えるようになった。", "農耕");
+    }
+
+    if (
+      s.population >= 140 &&
+      s.resources >= 40 &&
+      s.knowledge >= 28 &&
+      s.stage === "農耕社会"
+    ) {
+      changeStage(w, "都市社会", "金属の道具と大きな集落が生まれた。", "金属加工");
+    }
+
+    if (
+      s.population >= 240 &&
+      s.resources >= 52 &&
+      s.knowledge >= 48 &&
+      s.stability >= 30 &&
+      s.stage === "都市社会"
+    ) {
+      s.industry = Math.max(s.industry, 20);
+      changeStage(
+        w,
+        "産業革命",
+        "熱と圧力を動力として利用し始めた。",
+        "蒸気機関"
+      );
+    }
+
+    if (
+      s.population >= 420 &&
+      s.knowledge >= 72 &&
+      s.industry >= 55 &&
+      s.stage === "産業革命"
+    ) {
+      changeStage(
+        w,
+        "機械文明",
+        "機械が生産と移動を大きく変えた。",
+        "機械生産"
+      );
+    }
+  }
+
+  function updateCivilization(w, years) {
+    const s = w.settlement;
+
+    if (!w.cast.length || s.population <= 0) return;
+
+    const aliveCount = w.cast.filter((person) => person.alive).length;
+
+    s.food = clamp(
+      s.food + (w.rng() - 0.39) * years * 0.14 + aliveCount * years * 0.003,
+      0,
+      100
+    );
+
+    s.resources = clamp(
+      s.resources + (w.rng() - 0.44) * years * 0.11,
+      0,
+      100
+    );
+
+    s.knowledge = clamp(
+      s.knowledge + years * (0.045 + aliveCount * 0.003),
+      0,
+      100
+    );
+
+    s.medicine = clamp(
+      s.medicine + s.knowledge * years * 0.0007,
+      0,
+      100
+    );
+
+    if (s.stage === "産業革命" || s.stage === "機械文明") {
+      s.industry = clamp(
+        s.industry + years * 0.08 + s.knowledge * years * 0.0005,
+        0,
+        100
+      );
+      s.resources = clamp(s.resources - years * 0.025, 0, 100);
+    }
+
+    if (s.food > 30 && s.stability > 20) {
+      s.population += years * (0.11 + s.food * 0.0015);
+    }
+
+    if (s.food < 15) {
+      s.population -= years * 0.18;
+      s.stability -= years * 0.06;
+    }
+
+    s.population = Math.max(0, s.population);
+    s.stability = clamp(s.stability, 0, 100);
+
+    advanceCivilizationStage(w);
+  }
+
+  function performCharacterAction(w, character, action) {
+    const others = w.cast.filter(
+      (person) => person.alive && person.id !== character.id
+    );
+
+    const target = others.length ? pick(w.rng, others) : null;
+
+    if (action === "explore") {
+      character.x = clamp(
+        character.x + randInt(w.rng, -2, 2),
+        1,
+        COLS - 2
+      );
+      character.y = clamp(
+        character.y + randInt(w.rng, -2, 2),
+        1,
+        ROWS - 2
+      );
+      character.mood = "好奇心";
+
+      addDrama(
+        w,
+        "discovery",
+        [character],
+        `${character.name}「まだ見たことのない場所へ行きたい」`,
+        "未知への探索"
+      );
+      return;
+    }
+
+    if (action === "help" && target) {
+      character.relation = `友人：${target.name}`;
+      target.relation = `友人：${character.name}`;
+      character.mood = "穏やか";
+      w.settlement.stability = clamp(w.settlement.stability + 3, 0, 100);
+
+      addDrama(
+        w,
+        "society",
+        [character, target],
+        `${character.name}は${target.name}へ食料を分け与えた。`,
+        "助け合い"
+      );
+      return;
+    }
+
+    if (action === "conflict" && target) {
+      character.relation = `対立：${target.name}`;
+      target.relation = `対立：${character.name}`;
+      character.mood = "怒り";
+      w.settlement.stability = clamp(w.settlement.stability - 5, 0, 100);
+      w.settlement.military = clamp(w.settlement.military + 2, 0, 100);
+
+      addDrama(
+        w,
+        "conflict",
+        [character, target],
+        `${character.name}「お前の考えには従えない」`,
+        "意見の衝突"
+      );
+      return;
+    }
+
+    if (action === "protect") {
+      character.mood = "警戒";
+      w.settlement.stability = clamp(w.settlement.stability + 2, 0, 100);
+
+      addDrama(
+        w,
+        "society",
+        [character],
+        `${character.name}は共同体の周囲を見回っている。`,
+        "共同体を守る"
+      );
+      return;
+    }
+
+    if (action === "invent") {
+      const invention = pick(w.rng, [
+        "新しい保存方法",
+        "水を運ぶ器",
+        "風を読む印",
+        "胞子の伝言",
+        "石を磨く道具",
+        "夜に光る標識",
+      ]);
+
+      character.mood = "集中";
+      w.settlement.technology = invention;
+      w.settlement.knowledge = clamp(w.settlement.knowledge + 5, 0, 100);
+
+      addNews(
+        w,
+        "discovery",
+        `${character.name}が発見した`,
+        `${invention}が共同体へ広がった。`
+      );
+
+      addDrama(
+        w,
+        "discovery",
+        [character],
+        `${character.name}「これなら、前とは違うことができる」`,
+        "新しい発見"
+      );
+    }
+  }
+
+  function runPersonalityActions(w) {
+    for (const character of w.cast) {
+      if (!character.alive) continue;
+      if (w.year < character.nextActionYear) continue;
+
+      character.nextActionYear = w.year + randInt(w.rng, 12, 40);
+
+      const p = character.personality;
+
+      const actions = [
+        { type: "explore", score: p.curiosity + p.adaptability * 0.4 },
+        { type: "help", score: p.empathy + p.sociability * 0.3 },
+        { type: "conflict", score: p.aggression - p.caution * 0.3 },
+        { type: "protect", score: p.caution + p.empathy * 0.3 },
+        { type: "invent", score: p.curiosity + p.caution * 0.2 },
+      ];
+
+      actions.sort((a, b) => b.score - a.score);
+      performCharacterAction(w, character, actions[0].type);
+    }
+  }
+
+  function killCharacter(w, character, cause) {
+    if (!character || !character.alive) return;
+
+    character.alive = false;
+
+    w.graves.push({
+      x: character.x,
+      y: character.y,
+      name: character.name,
+      year: Math.floor(w.year),
+      cause,
+    });
+
+    addDrama(
+      w,
+      "death",
+      [],
+      `${character.name}は${cause}によって命を失った。墓標だけが残された。`,
+      `${character.name}の死`
+    );
+  }
+
+  function damageRandomTiles(w, count, damageType) {
+    const cells = [];
+
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (w.tiles[y][x].type !== "water") {
+          cells.push({ x, y });
+        }
+      }
+    }
+
+    for (let i = 0; i < count && cells.length; i++) {
+      const index = randInt(w.rng, 0, cells.length - 1);
+      const cell = cells.splice(index, 1)[0];
+
+      w.tiles[cell.y][cell.x].damage = damageType;
+
+      if (damageType === "fire") {
+        w.tiles[cell.y][cell.x].type = "burned";
+      }
+    }
+  }
+
+  function triggerWar(w) {
+    const s = w.settlement;
+    const loss = Math.floor(s.population * (0.08 + w.rng() * 0.22));
+
+    s.population = Math.max(0, s.population - loss);
+    s.stability = clamp(s.stability - randInt(w.rng, 15, 35), 0, 100);
+    s.resources = clamp(s.resources - randInt(w.rng, 10, 30), 0, 100);
+    s.military = clamp(s.military + randInt(w.rng, 8, 20), 0, 100);
+
+    const alive = w.cast.filter((person) => person.alive);
+
+    if (alive.length && w.rng() < 0.38) {
+      killCharacter(w, pick(w.rng, alive), "戦争");
+    }
+
+    addNews(
+      w,
+      "conflict",
+      "大規模な戦争",
+      `${loss}の人口が失われ、共同体は大きく分裂した。`
+    );
+
+    addDrama(
+      w,
+      "conflict",
+      alive.slice(0, 2),
+      "争いは長く続き、帰らない者の名前が増えていった。",
+      "戦争"
+    );
+  }
+
+  function triggerPlague(w) {
+    const s = w.settlement;
+    const protection = s.medicine / 100;
+    const rate = Math.max(0.05, 0.42 - protection * 0.32);
+    const loss = Math.floor(s.population * rate);
+
+    s.population = Math.max(0, s.population - loss);
+    s.stability = clamp(s.stability - 18, 0, 100);
+
+    const alive = w.cast.filter((person) => person.alive);
+
+    if (alive.length && w.rng() < rate) {
+      killCharacter(w, pick(w.rng, alive), "疫病");
+    }
+
+    addNews(
+      w,
+      "death",
+      "未知の疫病",
+      `${loss}の生命が失われた。医療水準が被害を左右した。`
+    );
+
+    addDrama(
+      w,
+      "death",
+      alive.slice(0, 2),
+      "集落は静まり、互いの無事を確かめる声だけが残った。",
+      "疫病"
+    );
+  }
+
+  function triggerEarthquake(w) {
+    const s = w.settlement;
+    const loss = Math.min(
+      Math.floor(s.population),
+      randInt(w.rng, 4, Math.max(8, Math.floor(s.population * 0.15)))
+    );
+
+    s.population = Math.max(0, s.population - loss);
+    s.stability = clamp(s.stability - 20, 0, 100);
+    s.resources = clamp(s.resources - 15, 0, 100);
+
+    damageRandomTiles(w, randInt(w.rng, 4, 9), "quake");
+
+    addNews(
+      w,
+      "disaster",
+      "大地震",
+      "地面が割れ、住居と道が崩壊した。"
+    );
+
+    addDrama(
+      w,
+      "disaster",
+      w.cast.filter((person) => person.alive).slice(0, 2),
+      "足元が大きく揺れ、見慣れた風景が崩れていった。",
+      "大地震"
+    );
+  }
+
+  function triggerFire(w) {
+    const s = w.settlement;
+
+    s.food = clamp(s.food - 20, 0, 100);
+    s.resources = clamp(s.resources - 18, 0, 100);
+    s.stability = clamp(s.stability - 12, 0, 100);
+
+    damageRandomTiles(w, randInt(w.rng, 5, 12), "fire");
+
+    addNews(
+      w,
+      "disaster",
+      "大火災",
+      "火が集落へ広がり、食料庫と住居が焼けた。"
+    );
+
+    addDrama(
+      w,
+      "disaster",
+      w.cast.filter((person) => person.alive).slice(0, 2),
+      "赤い光が夜を照らし、皆が水を運んだ。",
+      "大火災"
+    );
+  }
+
+  function triggerTyphoon(w) {
+    const s = w.settlement;
+
+    s.food = clamp(s.food - randInt(w.rng, 10, 28), 0, 100);
+    s.population = Math.max(0, s.population - randInt(w.rng, 0, 12));
+    s.stability = clamp(s.stability - 8, 0, 100);
+
+    damageRandomTiles(w, randInt(w.rng, 3, 8), "storm");
+
+    addNews(
+      w,
+      "disaster",
+      "巨大な台風",
+      "暴風と洪水が海岸や農地を飲み込んだ。"
+    );
+
+    addDrama(
+      w,
+      "disaster",
+      w.cast.filter((person) => person.alive).slice(0, 2),
+      "風は何日も止まず、誰も外へ出られなかった。",
+      "巨大な台風"
+    );
+  }
+
+  function triggerDisaster(w, type) {
+    if (type === "war") triggerWar(w);
+    if (type === "plague") triggerPlague(w);
+    if (type === "earthquake") triggerEarthquake(w);
+    if (type === "fire") triggerFire(w);
+    if (type === "typhoon") triggerTyphoon(w);
+
+    checkCivilizationCollapse(w);
+  }
+
+  function checkDisasters(w, years) {
+    if (w.phase !== "alive") return;
+    if (!w.cast.length) return;
+
+    w.disasterCooldown -= years;
+
+    if (w.disasterCooldown > 0) return;
+
+    const type = pick(w.rng, DISASTERS);
+    triggerDisaster(w, type);
+
+    w.disasterCooldown = randInt(w.rng, 90, 260);
+  }
+
+  function checkCivilizationCollapse(w) {
+    const s = w.settlement;
+
+    if (s.population <= 0 || !w.cast.some((person) => person.alive)) {
+      beginExtinction(w, "文明と名前を持つ個体がすべて失われた");
+      return;
+    }
+
+    if (s.stability <= 0) {
+      s.stage = "崩壊した文明";
+      s.technology = "失われた技術";
+      s.population = Math.max(4, Math.floor(s.population * 0.3));
+      s.stability = 20;
+      s.knowledge *= 0.4;
+      s.industry = 0;
+
+      addNews(
+        w,
+        "death",
+        "文明崩壊",
+        "社会制度が失われ、生存者は小さな集団へ戻った。"
+      );
+
+      addDrama(
+        w,
+        "death",
+        w.cast.filter((person) => person.alive).slice(0, 2),
+        "かつての仕組みは失われた。それでも、生き残った者は集まり直した。",
+        "文明の崩壊"
+      );
+    }
+  }
+
+  function beginExtinction(w, cause) {
+    if (w.phase === "extinction") return;
+
+    w.eventFlags.add("extinction");
+    w.phase = "extinction";
+    w.extinctionElapsed = 0;
+    w.nextSeed = randomSeed();
+
+    for (const character of w.cast) {
+      if (character.alive && w.rng() < 0.82) {
+        killCharacter(w, character, cause || w.extinctionPlan.cause);
+      }
+    }
+
+    w.settlement.population = Math.max(
+      0,
+      Math.floor(w.settlement.population * 0.06)
+    );
+
+    w.settlement.stability = 0;
+    w.settlement.stage = "崩壊跡";
+    w.biodiversity = Math.max(0, Math.floor(w.biodiversity * 0.08));
+
+    addNews(
+      w,
+      "death",
+      "世界規模の終焉",
+      `${cause || w.extinctionPlan.cause}により、この世界の営みは静かに途切れた。`
+    );
+
+    addDrama(
+      w,
+      "death",
+      w.cast.filter((person) => person.alive).slice(0, 2),
+      "空は灰色に沈み、残された名前も風景の中へ消えていった。",
+      "世界の終わり"
+    );
+  }
+
+  function triggerMilestones(w) {
     if (w.year >= 18 && !w.eventFlags.has("firstLife")) {
       w.eventFlags.add("firstLife");
       w.lifeLevel = 1;
       w.biodiversity = Math.max(w.biodiversity, 14);
-      addNews(w, "birth", "最初の生命反応", "浅い水辺で、自己複製する小さな生命が生まれた。");
-      addDrama(w, "birth", [], "水面の下で、ごく小さな生命が増え始めた。まだ名前も、意思もない。", "生命の誕生");
+
+      addNews(
+        w,
+        "birth",
+        "最初の生命反応",
+        "浅い水辺で、自己複製する小さな生命が生まれた。"
+      );
+
+      addDrama(
+        w,
+        "birth",
+        [],
+        "水面の下で、ごく小さな生命が増え始めた。まだ名前も、意思もない。",
+        "生命の誕生"
+      );
     }
 
     if (w.year >= 58 && !w.eventFlags.has("complexLife")) {
       w.eventFlags.add("complexLife");
       w.lifeLevel = 2;
       w.biodiversity = Math.max(w.biodiversity, 28);
-      addNews(w, "nature", "複雑な生物が広がった", "移動し、食べ、逃げる生物が各地へ広がり始めた。");
-      addDrama(w, "nature", [], "群れはまだ個体を区別しない。ただ環境に応じて増え、減っている。", "生態系の形成");
+
+      addNews(
+        w,
+        "nature",
+        "複雑な生物が広がった",
+        "移動し、食べ、逃げる生物が各地へ広がり始めた。"
+      );
+
+      addDrama(
+        w,
+        "nature",
+        [],
+        "群れはまだ個体を区別しない。ただ環境に応じて増え、減っている。",
+        "生態系の形成"
+      );
     }
 
     if (w.year >= 105 && !w.eventFlags.has("namedLife")) {
       w.eventFlags.add("namedLife");
       w.lifeLevel = 3;
       spawnNamedCast(w);
+
       w.settlement.population = randInt(w.rng, 12, 30);
       w.settlement.stage = "小さな集まり";
       w.settlement.technology = "採集と簡単な道具";
-      const c = w.cast;
-      addNews(w, "birth", "名前を持つ個体が現れた", `${c[0].name}たちは互いを識別し、記憶を共有し始めた。`);
-      addDrama(w, "birth", [c[0]], `${c[0].name}は、共同体の外に広がる森を初めて見つめた。`, "最初の名前");
+
+      const first = w.cast[0];
+
+      addNews(
+        w,
+        "birth",
+        "名前を持つ個体が現れた",
+        `${first.name}たちは互いを識別し、記憶を共有し始めた。`
+      );
+
+      addDrama(
+        w,
+        "birth",
+        [first],
+        `${first.name}は、共同体の外に広がる世界を初めて見つめた。`,
+        "最初の名前"
+      );
+    }
+  }
+
+  function updateMeteor(w, dt, speed) {
+    if (!w.meteor || w.meteor.done) return;
+
+    w.meteor.progress += dt * speed * 0.18;
+
+    if (w.meteor.progress < 1) return;
+
+    w.meteor.done = true;
+    w.settlement.population = Math.max(
+      4,
+      Math.floor(w.settlement.population * 0.44)
+    );
+    w.settlement.stability = Math.max(
+      8,
+      w.settlement.stability - 32
+    );
+    w.biodiversity = Math.max(5, w.biodiversity - 24);
+
+    const living = w.cast.filter((person) => person.alive);
+    const victim = living.length ? living[living.length - 1] : null;
+
+    if (victim) {
+      killCharacter(w, victim, "隕石衝突");
+
+      addNews(
+        w,
+        "disaster",
+        "隕石衝突",
+        `${w.settlement.name}は大きな被害を受け、${victim.name}の記録はここで途切れた。`
+      );
+    } else {
+      addNews(
+        w,
+        "disaster",
+        "隕石衝突",
+        `${w.settlement.name}は大きな被害を受けた。`
+      );
     }
 
-    if (!w.cast.length) return;
-    const c = w.cast;
-
-    if (w.year >= 145 && !w.eventFlags.has("bond")) {
-      w.eventFlags.add("bond");
-      addNews(w, "society", "最初の強い絆", `${c[0].name}と${c[1].name}は食べ物と居場所を分け合った。`);
-      addDrama(w, "society", [c[0], c[1]], `「ここを、戻ってこられる場所にしよう」`, "最初の約束");
-    }
-    if (w.year >= 195 && !w.eventFlags.has("settlement")) {
-      w.eventFlags.add("settlement");
-      w.settlement.stage = "定住集落";
-      w.settlement.population += 45;
-      w.settlement.technology = "保存食と住居";
-      addNews(w, "society", `${w.settlement.name}が形になった`, "住居と食料置き場が集まり、帰る場所が生まれた。");
-      addDrama(w, "society", [c[1], c[2]], `${c[1].name}は住居を増やしたい。${c[2].name}は森を残すべきだと考えている。`, "集落の最初の意見対立");
-    }
-    if (w.year >= 255 && !w.eventFlags.has("discovery")) {
-      w.eventFlags.add("discovery");
-      w.settlement.technology = pick(r, ["火と焼成", "水路", "胞子通信", "風を使う運搬", "貝殻の記録板"]);
-      addNews(w, "discovery", "新しい技術が生まれた", `${c[2].name}が「${w.settlement.technology}」を共同体へ伝えた。`);
-      addDrama(w, "discovery", [c[2], c[0]], `${c[2].name}「これで季節を越えられる」`, "発見の共有");
-    }
-    if (w.year >= 325 && !w.eventFlags.has("conflict")) {
-      w.eventFlags.add("conflict");
-      w.settlement.stability -= 18;
-      addNews(w, "conflict", "共同体が二つの考えに割れた", `${c[2].name}と${c[3].name}は資源の使い方を巡って対立した。`);
-      addDrama(w, "conflict", [c[2], c[3]], `「今を生きるために使う」「未来のために残す」`, "資源を巡る対立");
-    }
-    if (w.year >= 410 && !w.eventFlags.has("meteor")) {
-      w.eventFlags.add("meteor");
-      w.meteor = { progress: 0, x: randInt(r, 8, COLS - 8), y: randInt(r, 5, ROWS - 5), done: false };
-      addNews(w, "disaster", "空に強い光", "巨大な天体が世界へ近づいている。誰にも止められない。");
-      addDrama(w, "disaster", [c[0], c[1]], `二人は空を見上げた。言葉はなかった。`, "隕石接近");
-    }
-    if (w.year >= 510 && !w.eventFlags.has("recovery")) {
-      w.eventFlags.add("recovery");
-      w.biodiversity = Math.max(12, w.biodiversity + 8);
-      addNews(w, "nature", "焼け跡に新しい芽", "災害の跡地から、以前とは異なる生命が広がり始めた。");
-      const alive = c.filter(x => x.alive);
-      if (alive.length) addDrama(w, "nature", alive.slice(0,2), `${alive[0].name}は、墓標のそばに芽吹いた小さな命を見つけた。`, "再生");
-    }
+    checkCivilizationCollapse(w);
   }
 
   function update(dt) {
     if (!running || !world) return;
+
     const speed = Number(speedSelect.value);
+
     if (world.phase === "extinction") {
       world.extinctionElapsed += dt;
+
       if (world.extinctionElapsed >= WORLD_RESTART_DELAY) {
         reset(world.nextSeed || randomSeed());
       }
+
       return;
     }
-    world.year += dt * speed * 2.2;
+
+    const years = dt * speed * 2.2;
+
+    world.year += years;
     world.season = (world.year / 8) % 4;
     world.temperature += (world.rng() - 0.5) * 0.025;
-    world.biodiversity = clamp(world.biodiversity + (world.rng() - 0.48) * 0.03, 0, 100);
+    world.biodiversity = clamp(
+      world.biodiversity + (world.rng() - 0.48) * 0.03,
+      0,
+      100
+    );
 
-    // 滅亡時期はSeedごとに変わる。最短年以降は毎年少しずつ確率が上がり、最長年で必ず発生する。
-    const plan = world.extinctionPlan;
-    if (!world.eventFlags.has("extinction") && world.year >= plan.earliestYear) {
-      const yearsAdvanced = dt * speed * 2.2;
-      const agePressure = clamp((world.year - plan.earliestYear) / Math.max(1, plan.latestYear - plan.earliestYear), 0, 1);
-      const risk = (plan.riskPerYear * (0.35 + agePressure * 2.4)) * yearsAdvanced;
-      if (world.year >= plan.latestYear || world.rng() < risk) beginExtinction(world);
-    }
+    triggerMilestones(world);
+    runPersonalityActions(world);
+    updateCivilization(world, years);
+    checkDisasters(world, years);
+    updateMeteor(world, dt, speed);
 
-    for (const c of world.cast) {
-      if (!c.alive) continue;
+    for (const character of world.cast) {
+      if (!character.alive) continue;
+
       if (world.rng() < 0.02 * dt * speed) {
-        c.x = clamp(c.x + randInt(world.rng, -1, 1), 1, COLS - 2);
-        c.y = clamp(c.y + randInt(world.rng, -1, 1), 1, ROWS - 2);
+        character.x = clamp(
+          character.x + randInt(world.rng, -1, 1),
+          1,
+          COLS - 2
+        );
+        character.y = clamp(
+          character.y + randInt(world.rng, -1, 1),
+          1,
+          ROWS - 2
+        );
       }
     }
 
-    if (world.meteor && !world.meteor.done) {
-      world.meteor.progress += dt * speed * 0.18;
-      if (world.meteor.progress >= 1) {
-        world.meteor.done = true;
-        world.settlement.population = Math.max(4, Math.floor(world.settlement.population * 0.44));
-        world.settlement.stability = Math.max(8, world.settlement.stability - 32);
-        world.biodiversity = Math.max(5, world.biodiversity - 24);
-        const living = world.cast.filter(c => c.alive);
-        const victim = living.length ? living[living.length - 1] : null;
-        if (victim) {
-          victim.alive = false;
-          world.graves.push({ x: victim.x, y: victim.y, name: victim.name, year: Math.floor(world.year) });
-          const witness = world.cast.find(c => c.alive);
-          addNews(world, "disaster", "隕石衝突", `${world.settlement.name}は大きな被害を受け、${victim.name}の記録はここで途切れた。`);
-          addDrama(world, "death", witness ? [witness] : [], witness ? `${witness.name}は、失われた${victim.name}のために墓標を立てた。` : `${victim.name}の名を刻んだ墓標だけが残った。`, "喪失の記憶");
-        } else {
-          addNews(world, "disaster", "隕石衝突", `${world.settlement.name}は大きな被害を受けた。`);
-        }
+    const plan = world.extinctionPlan;
+
+    if (
+      !world.eventFlags.has("extinction") &&
+      world.year >= plan.earliestYear
+    ) {
+      const agePressure = clamp(
+        (world.year - plan.earliestYear) /
+          Math.max(1, plan.latestYear - plan.earliestYear),
+        0,
+        1
+      );
+
+      const risk =
+        plan.riskPerYear *
+        (0.35 + agePressure * 2.4) *
+        years;
+
+      if (world.year >= plan.latestYear || world.rng() < risk) {
+        beginExtinction(world, plan.cause);
       }
     }
 
-    triggerMilestones();
+    if (
+      world.year >= 410 &&
+      !world.eventFlags.has("meteor") &&
+      world.rng() < 0.003 * years
+    ) {
+      world.eventFlags.add("meteor");
+      world.meteor = {
+        progress: 0,
+        x: randInt(world.rng, 8, COLS - 8),
+        y: randInt(world.rng, 5, ROWS - 5),
+        done: false,
+      };
+
+      addNews(
+        world,
+        "disaster",
+        "空に強い光",
+        "巨大な天体が世界へ近づいている。誰にも止められない。"
+      );
+
+      addDrama(
+        world,
+        "disaster",
+        world.cast.filter((person) => person.alive).slice(0, 2),
+        "皆は空を見上げた。言葉はなかった。",
+        "隕石接近"
+      );
+    }
+
+    checkCivilizationCollapse(world);
   }
 
   function drawTree(x, y, size) {
     ctx.fillStyle = "#70472f";
     ctx.fillRect(x - size * 0.08, y + size * 0.1, size * 0.16, size * 0.32);
+
     ctx.fillStyle = "#205f3a";
-    ctx.beginPath(); ctx.arc(x, y, size * 0.28, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, size * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.fillStyle = "#2f7b49";
-    ctx.beginPath(); ctx.arc(x - size * 0.16, y + size * 0.05, size * 0.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + size * 0.17, y + size * 0.05, size * 0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x - size * 0.16, y + size * 0.05, size * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x + size * 0.17, y + size * 0.05, size * 0.2, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function drawHouse(x, y, size, lit = false) {
     ctx.fillStyle = "#ead4a4";
     ctx.fillRect(x - size * 0.3, y - size * 0.02, size * 0.6, size * 0.45);
+
     ctx.fillStyle = "#9b4f3d";
     ctx.beginPath();
-    ctx.moveTo(x - size * 0.38, y); ctx.lineTo(x, y - size * 0.36); ctx.lineTo(x + size * 0.38, y); ctx.closePath(); ctx.fill();
+    ctx.moveTo(x - size * 0.38, y);
+    ctx.lineTo(x, y - size * 0.36);
+    ctx.lineTo(x + size * 0.38, y);
+    ctx.closePath();
+    ctx.fill();
+
     ctx.fillStyle = "#70472f";
     ctx.fillRect(x - size * 0.07, y + size * 0.18, size * 0.14, size * 0.25);
+
     ctx.fillStyle = lit ? "#ffd36b" : "#84b9ce";
     ctx.fillRect(x - size * 0.23, y + size * 0.1, size * 0.12, size * 0.12);
     ctx.fillRect(x + size * 0.11, y + size * 0.1, size * 0.12, size * 0.12);
   }
 
-  function drawCharacter(c, x, y, size) {
-    const emoji = ICONS[c.species] || "🧑";
+  function drawCharacter(character, x, y, size) {
+    const emoji = ICONS[character.species] || "🧑";
+
     ctx.save();
     ctx.translate(x, y);
     ctx.textAlign = "center";
@@ -401,279 +1203,405 @@
   }
 
   function drawWorld() {
-    const w = world;
-    if (!w) return;
+    if (!world) return;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
     const cw = canvas.width / COLS;
     const ch = canvas.height / ROWS;
 
-    // Large, readable RPG-like tiles.
-    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-      const t = w.tiles[y][x];
-      const px = x * cw, py = y * ch;
-      if (t.type === "water") {
-        ctx.fillStyle = "#3c91b7"; ctx.fillRect(px, py, cw + 1, ch + 1);
-        ctx.strokeStyle = "rgba(210,245,255,.45)"; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(px+cw*.12,py+ch*.38); ctx.quadraticCurveTo(px+cw*.36,py+ch*.26,px+cw*.58,py+ch*.38); ctx.quadraticCurveTo(px+cw*.78,py+ch*.49,px+cw*.92,py+ch*.38); ctx.stroke();
-      } else {
-        ctx.fillStyle = t.type === "forest" ? "#7cac62" : t.type === "mountain" ? "#8d987c" : "#9cc676";
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const tile = world.tiles[y][x];
+        const px = x * cw;
+        const py = y * ch;
+
+        const colors = {
+          water: "#3d91c7",
+          grass: "#80b96b",
+          forest: "#3e7b4c",
+          mountain: "#777b84",
+          burned: "#4b4038",
+        };
+
+        ctx.fillStyle = colors[tile.type] || "#80b96b";
         ctx.fillRect(px, py, cw + 1, ch + 1);
-        ctx.fillStyle = "rgba(255,255,255,.05)";
-        ctx.fillRect(px+2,py+2,cw-4,ch-4);
-        if (t.type === "forest") {
-          drawTree(px+cw*.35, py+ch*.43, Math.min(cw,ch)*.8);
-          if ((x+y)%2===0) drawTree(px+cw*.72, py+ch*.6, Math.min(cw,ch)*.56);
-        } else if (t.type === "mountain") {
-          ctx.fillStyle = "#69706c";
-          ctx.beginPath(); ctx.moveTo(px+cw*.08,py+ch*.82); ctx.lineTo(px+cw*.5,py+ch*.12); ctx.lineTo(px+cw*.94,py+ch*.82); ctx.closePath(); ctx.fill();
-          ctx.fillStyle = "#dce3dc";
-          ctx.beginPath(); ctx.moveTo(px+cw*.37,py+ch*.34); ctx.lineTo(px+cw*.5,py+ch*.12); ctx.lineTo(px+cw*.63,py+ch*.34); ctx.closePath(); ctx.fill();
-        } else if ((x*7+y*11)%9===0) {
-          ctx.fillStyle = "#d8e89c";
-          for (let i=0;i<3;i++){ctx.beginPath();ctx.arc(px+cw*(.25+i*.18),py+ch*.62,2.2,0,Math.PI*2);ctx.fill();}
+
+        if (tile.type === "water") {
+          ctx.strokeStyle = "rgba(255,255,255,.22)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(px + cw * 0.18, py + ch * 0.48);
+          ctx.quadraticCurveTo(
+            px + cw * 0.5,
+            py + ch * 0.33,
+            px + cw * 0.82,
+            py + ch * 0.48
+          );
+          ctx.stroke();
+        }
+
+        if (tile.type === "forest") {
+          drawTree(px + cw * 0.5, py + ch * 0.45, Math.min(cw, ch) * 0.9);
+        }
+
+        if (tile.type === "mountain") {
+          ctx.fillStyle = "#5f626b";
+          ctx.beginPath();
+          ctx.moveTo(px + cw * 0.08, py + ch * 0.92);
+          ctx.lineTo(px + cw * 0.5, py + ch * 0.08);
+          ctx.lineTo(px + cw * 0.92, py + ch * 0.92);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = "#e8edf3";
+          ctx.beginPath();
+          ctx.moveTo(px + cw * 0.35, py + ch * 0.38);
+          ctx.lineTo(px + cw * 0.5, py + ch * 0.08);
+          ctx.lineTo(px + cw * 0.65, py + ch * 0.38);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        if (tile.damage === "quake") {
+          ctx.strokeStyle = "#332d2b";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(px + cw * 0.1, py + ch * 0.2);
+          ctx.lineTo(px + cw * 0.45, py + ch * 0.55);
+          ctx.lineTo(px + cw * 0.25, py + ch * 0.9);
+          ctx.stroke();
+        }
+
+        if (tile.damage === "storm") {
+          ctx.fillStyle = "rgba(95,130,170,.32)";
+          ctx.fillRect(px, py, cw + 1, ch + 1);
+        }
+
+        if (tile.damage === "fire") {
+          ctx.font = `${Math.floor(Math.min(cw, ch) * 0.65)}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("🔥", px + cw / 2, py + ch / 2);
         }
       }
-      ctx.strokeStyle = "rgba(23,49,51,.10)"; ctx.lineWidth = 1; ctx.strokeRect(px,py,cw,ch);
     }
 
-    const s = w.settlement;
-    const sx = (s.x + .5) * cw, sy = (s.y + .5) * ch;
-    // 名前付き個体が社会を作るまでは、道・畑・住居を描かない。
-    if (s.stage !== "生命前") {
-      ctx.strokeStyle = "#c3a77a"; ctx.lineWidth = Math.max(5,cw*.12); ctx.lineCap="round";
-      ctx.beginPath(); ctx.moveTo(sx-cw*2.2,sy+ch*.75); ctx.lineTo(sx+cw*2.2,sy+ch*.75); ctx.stroke();
-      ctx.fillStyle = "#d3b76f";
-      for(let r=0;r<3;r++) for(let c2=0;c2<4;c2++) ctx.fillRect(sx+cw*(.8+c2*.16),sy+ch*(-.35+r*.18),cw*.09,ch*.12);
-      drawHouse(sx-cw*.65, sy-ch*.05, Math.min(cw,ch)*.9, true);
-      drawHouse(sx+cw*.15, sy-ch*.1, Math.min(cw,ch)*1.0, false);
-      if (s.stage === "定住集落") drawHouse(sx+cw*.82, sy+ch*.02, Math.min(cw,ch)*.82, true);
+    if (world.cast.length && world.settlement.population > 0) {
+      const sx = (world.settlement.x + 0.5) * cw;
+      const sy = (world.settlement.y + 0.55) * ch;
+
+      drawHouse(sx, sy, Math.min(cw, ch) * 0.9, true);
+
+      if (
+        ["農耕社会", "都市社会", "産業革命", "機械文明"].includes(
+          world.settlement.stage
+        )
+      ) {
+        ctx.fillStyle = "#d6b25f";
+        ctx.fillRect(
+          sx + cw * 0.45,
+          sy - ch * 0.2,
+          cw * 1.1,
+          ch * 0.85
+        );
+
+        ctx.strokeStyle = "#8a6d35";
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(sx + cw * 0.5, sy - ch * 0.1 + i * ch * 0.2);
+          ctx.lineTo(sx + cw * 1.5, sy - ch * 0.1 + i * ch * 0.2);
+          ctx.stroke();
+        }
+      }
+
+      if (
+        world.settlement.stage === "産業革命" ||
+        world.settlement.stage === "機械文明"
+      ) {
+        ctx.fillStyle = "#656b70";
+        ctx.fillRect(sx - cw * 1.5, sy - ch * 0.55, cw * 0.9, ch * 1.05);
+        ctx.fillRect(sx - cw * 1.35, sy - ch * 1.05, cw * 0.2, ch * 0.6);
+
+        ctx.fillStyle = "rgba(60,60,60,.35)";
+        ctx.beginPath();
+        ctx.arc(sx - cw * 1.25, sy - ch * 1.25, cw * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    // Named characters: large sprite + name plaque.
-    for (const c of w.cast) {
-      if (!c.alive) continue;
-      const px = (c.x + .5) * cw;
-      const py = (c.y + .56) * ch;
-      ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.ellipse(px,py+ch*.22,cw*.26,ch*.11,0,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,.94)"; ctx.beginPath(); ctx.arc(px, py-ch*.02, Math.min(cw,ch)*.38, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = c.species === "plant" ? "#173c24" : "#10192d"; ctx.lineWidth = 4; ctx.stroke();
-      drawCharacter(c, px, py, Math.min(cw,ch)*.92);
-      ctx.font = `800 ${Math.max(14, Math.floor(ch*.3))}px system-ui`;
-      const tw = ctx.measureText(c.name).width + 18;
-      const labelY = py - ch * .78;
-      ctx.save();
-      ctx.shadowColor = "rgba(0,0,0,.55)";
-      ctx.shadowBlur = 5;
-      ctx.fillStyle = "rgba(15,25,48,.94)";
-      ctx.strokeStyle = "rgba(156,181,236,.95)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(px - tw / 2, labelY, tw, ch * .36, 7);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle = "#ffffff";
+    for (const grave of world.graves) {
+      const gx = (grave.x + 0.5) * cw;
+      const gy = (grave.y + 0.55) * ch;
+
+      ctx.font = `${Math.floor(Math.min(cw, ch) * 0.75)}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(c.name, px, labelY + ch * .18);
+      ctx.fillText("🪦", gx, gy);
     }
 
-    // 亡くなった名前付き個体の場所には墓標を残す。
-    for (const grave of w.graves) {
-      const gx = (grave.x + .5) * cw;
-      const gy = (grave.y + .58) * ch;
-      ctx.fillStyle = "rgba(0,0,0,.28)";
-      ctx.beginPath(); ctx.ellipse(gx, gy + ch*.2, cw*.25, ch*.10, 0, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = "#d8d2c6";
-      ctx.strokeStyle = "#3f454b";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.roundRect(gx - cw*.18, gy - ch*.15, cw*.36, ch*.42, 7);
-      ctx.fill(); ctx.stroke();
-      ctx.strokeStyle = "#646b72";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(gx, gy - ch*.08); ctx.lineTo(gx, gy + ch*.12);
-      ctx.moveTo(gx - cw*.08, gy); ctx.lineTo(gx + cw*.08, gy);
-      ctx.stroke();
-      ctx.font = `800 ${Math.max(12, Math.floor(ch*.23))}px system-ui`;
-      const tw = ctx.measureText(grave.name).width + 14;
-      ctx.fillStyle = "rgba(15,25,48,.94)";
-      ctx.beginPath(); ctx.roundRect(gx - tw/2, gy - ch*.52, tw, ch*.28, 6); ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(grave.name, gx, gy - ch*.38);
-    }
+    for (const character of world.cast) {
+      if (!character.alive) continue;
 
-    if (w.meteor && !w.meteor.done) {
-      const m = w.meteor, tx=(m.x+.5)*cw, ty=(m.y+.5)*ch, sx2=canvas.width+80, sy2=-80;
-      const px=sx2+(tx-sx2)*m.progress, py=sy2+(ty-sy2)*m.progress;
-      ctx.strokeStyle="#ffbd6a";ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(px+70,py-55);ctx.lineTo(px,py);ctx.stroke();
-      ctx.fillStyle="#ff7c82";ctx.beginPath();ctx.arc(px,py,16,0,Math.PI*2);ctx.fill();
-    }
-    if (w.meteor?.done) {
-      const px=(w.meteor.x+.5)*cw, py=(w.meteor.y+.5)*ch;
-      ctx.fillStyle="rgba(45,28,24,.82)";ctx.beginPath();ctx.ellipse(px,py,cw*.55,ch*.35,0,0,Math.PI*2);ctx.fill();
-      ctx.strokeStyle="#ff9a66";ctx.lineWidth=3;ctx.stroke();
-    }
-    if (w.phase === "extinction") {
-      const p = clamp(w.extinctionElapsed / WORLD_RESTART_DELAY, 0, 1);
-      ctx.fillStyle = `rgba(48, 25, 28, ${0.46 + p * 0.3})`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = `rgba(20, 20, 26, ${0.25 + p * 0.45})`;
-      for (let i = 0; i < 28; i++) {
-        const rx = ((i * 83 + w.seed) % canvas.width);
-        const ry = ((i * 47 + w.seed) % canvas.height);
-        ctx.beginPath(); ctx.arc(rx, ry, 12 + (i % 5) * 7, 0, Math.PI * 2); ctx.fill();
-      }
+      const x = (character.x + 0.5) * cw;
+      const y = (character.y + 0.5) * ch;
+
+      drawCharacter(character, x, y, Math.min(cw, ch));
+
+      ctx.font = `bold ${Math.max(11, Math.floor(ch * 0.25))}px sans-serif`;
       ctx.textAlign = "center";
-      ctx.fillStyle = "#fff1e7";
-      ctx.font = "800 34px system-ui";
-      ctx.fillText("この世界は滅びた", canvas.width / 2, canvas.height / 2 - 18);
-      ctx.font = "600 17px system-ui";
-      const remain = Math.max(0, Math.ceil(WORLD_RESTART_DELAY - w.extinctionElapsed));
-      ctx.fillText(`次の世界を生成するまで ${remain} 秒`, canvas.width / 2, canvas.height / 2 + 22);
-    }
-    if (w.selectedCell) {
-      ctx.strokeStyle="#fff";ctx.lineWidth=3;ctx.strokeRect(w.selectedCell.x*cw+3,w.selectedCell.y*ch+3,cw-6,ch-6);
-    }
-  }
+      ctx.textBaseline = "bottom";
 
-  function renderDrama() {
-    if (!world.dramas.length) {
-      dramaScene.innerHTML = '<div class="empty">まだ記録できるドラマはない。</div>';
-      return;
+      const label = character.name;
+      const width = ctx.measureText(label).width + 12;
+
+      ctx.fillStyle = "rgba(18,28,50,.92)";
+      ctx.fillRect(x - width / 2, y - ch * 0.63, width, ch * 0.28);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(label, x, y - ch * 0.38);
     }
-    const d = world.dramas[clamp(world.dramaIndex, 0, world.dramas.length - 1)];
-    const participants = d.participants.map(id => world.cast.find(c => c.id === id)).filter(Boolean);
-    const cards = participants.map((c, i) => `
-      <article class="speech-card">
-        <div class="cast-head">
-          <div class="cast-icon">${ICONS[c.species]}</div>
-          <div><div class="cast-name">${c.name}</div><div class="cast-meta">${c.role}・${c.alive ? `${Math.floor(c.age + world.year/20)}歳` : "記録上は死亡"}</div></div>
-        </div>
-        <p class="speech">${i === 0 ? d.text : responseFor(d.type, c)}</p>
-        <div class="relation">${c.relation}</div>
-      </article>`).join("");
-    dramaScene.innerHTML = cards + `<article class="speech-card"><div class="cast-name">${ICONS[d.type] || "📖"} ${d.title}</div><div class="cast-meta">世界歴 ${Math.floor(d.year)}年</div><p class="speech">この場面は世界ニュースと地図上の変化から自動生成された。</p></article>`;
-  }
 
-  function responseFor(type, c) {
-    const text = {
-      society: `「${c.mood === "警戒" ? "急ぎすぎてはいけない" : "一緒なら続けられる"}」`,
-      discovery: `「この知識を失わないようにしよう」`,
-      conflict: `「私には別の未来が見えている」`,
-      disaster: `「あの光は、何を連れてくるのだろう」`,
-      nature: `「終わったと思った場所にも、命は戻る」`,
-      death: `「名前を忘れなければ、完全には消えない」`,
-      birth: `「ここには、まだ知らないものがある」`
-    };
-    return text[type] || `「${c.mood}な気持ちで見守っている」`;
-  }
+    if (world.meteor && !world.meteor.done) {
+      const progress = world.meteor.progress;
+      const startX = canvas.width * 0.9;
+      const startY = -40;
+      const endX = (world.meteor.x + 0.5) * cw;
+      const endY = (world.meteor.y + 0.5) * ch;
+      const mx = startX + (endX - startX) * progress;
+      const my = startY + (endY - startY) * progress;
 
-  function renderInfo() {
-    const w = world;
-    worldSummary.textContent = `世界歴 ${Math.floor(w.year)}年・Seed ${w.seed}`;
-    worldState.innerHTML = `<dl>
-      <dt>気温</dt><dd>${w.temperature.toFixed(1)}℃</dd>
-      <dt>生物多様性</dt><dd>${Math.floor(w.biodiversity)}%</dd>
-      <dt>季節</dt><dd>${["芽吹き", "繁茂", "実り", "休眠"][Math.floor(w.season)]}</dd>
-      <dt>災害</dt><dd>${w.phase === "extinction" ? "世界滅亡" : w.meteor && !w.meteor.done ? "隕石接近中" : w.meteor?.done ? "衝突跡あり" : "目立つ兆候なし"}</dd>
-    </dl>`;
-    civilizationState.innerHTML = w.settlement.stage === "生命前"
-      ? `<p class="empty">文明や共同体はまだ存在しない。</p>`
-      : `<dl>
-          <dt>名前</dt><dd>${w.settlement.name}</dd>
-          <dt>段階</dt><dd>${w.settlement.stage}</dd>
-          <dt>人口</dt><dd>${w.settlement.population}</dd>
-          <dt>技術</dt><dd>${w.settlement.technology}</dd>
-          <dt>文化</dt><dd>${w.settlement.culture}</dd>
-          <dt>安定度</dt><dd>${w.settlement.stability}%</dd>
-        </dl>`;
-    castState.innerHTML = w.cast.length
-      ? `<dl>${w.cast.map(c => `<dt>${ICONS[c.species]} ${c.name}</dt><dd>${c.alive ? c.role : "死亡・墓標あり"}</dd>`).join("")}</dl>`
-      : `<p class="empty">まだ名前を持つ個体はいない。</p>`;
+      ctx.font = "46px sans-serif";
+      ctx.fillText("☄️", mx, my);
+    }
+
+    if (world.phase === "extinction") {
+      ctx.fillStyle = "rgba(25,20,30,.72)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.font = "bold 32px sans-serif";
+      ctx.fillText("この世界は滅びた", canvas.width / 2, canvas.height / 2 - 12);
+
+      ctx.font = "18px sans-serif";
+      ctx.fillText(
+        `次の世界まで ${Math.max(
+          0,
+          Math.ceil(WORLD_RESTART_DELAY - world.extinctionElapsed)
+        )} 秒`,
+        canvas.width / 2,
+        canvas.height / 2 + 28
+      );
+    }
   }
 
   function renderNews() {
-    const nearBottom = newsFeed.scrollHeight - newsFeed.scrollTop - newsFeed.clientHeight < 90;
-    newsFeed.innerHTML = world.news.map(n => `
-      <article class="news-item">
-        <div class="news-avatar">${ICONS[n.type] || "🌍"}</div>
-        <div>
-          <div class="news-time">世界歴 ${Math.floor(n.year)}年</div>
-          <div class="news-title">${n.title}</div>
-          <div class="news-text">${n.text}</div>
-          <span class="tag">${n.type}</span>
-        </div>
-      </article>`).join("");
-    if (nearBottom) newsFeed.scrollTop = newsFeed.scrollHeight;
+    if (!world) return;
+
+    newsFeed.innerHTML = "";
+
+    for (const item of world.news) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `news-item news-${item.type}`;
+      row.innerHTML = `
+        <span class="news-icon">${ICONS[item.type] || "•"}</span>
+        <span class="news-body">
+          <strong>${item.title}</strong>
+          <small>世界歴 ${item.year} 年</small>
+          <span>${item.text}</span>
+        </span>
+      `;
+      newsFeed.appendChild(row);
+    }
+
+    newsFeed.scrollTop = newsFeed.scrollHeight;
+  }
+
+  function renderDrama() {
+    if (!world || !world.dramas.length) {
+      dramaScene.innerHTML = "<p>まだドラマはありません。</p>";
+      return;
+    }
+
+    const drama =
+      world.dramas[
+        clamp(world.dramaIndex, 0, world.dramas.length - 1)
+      ];
+
+    const participants = drama.participants
+      .map((id) => world.cast.find((person) => person.id === id))
+      .filter(Boolean);
+
+    const castHtml = participants.length
+      ? participants
+          .map(
+            (person) => `
+              <div class="drama-character">
+                <div class="drama-avatar">${ICONS[person.species] || "🧑"}</div>
+                <div>
+                  <strong>${person.name}</strong>
+                  <small>${person.role}・${person.mood}</small>
+                </div>
+              </div>
+            `
+          )
+          .join("")
+      : `<div class="drama-character"><div class="drama-avatar">${ICONS[drama.type] || "🌍"}</div></div>`;
+
+    dramaScene.innerHTML = `
+      <div class="drama-header">
+        <strong>${drama.title}</strong>
+        <span>世界歴 ${drama.year} 年</span>
+      </div>
+      <div class="drama-cast">${castHtml}</div>
+      <p class="drama-text">${drama.text}</p>
+    `;
+  }
+
+  function renderPanels() {
+    if (!world) return;
+
+    const s = world.settlement;
+    const living = world.cast.filter((person) => person.alive);
+
+    worldState.innerHTML = `
+      <dl>
+        <div><dt>世界歴</dt><dd>${Math.floor(world.year).toLocaleString()} 年</dd></div>
+        <div><dt>気温</dt><dd>${world.temperature.toFixed(1)} ℃</dd></div>
+        <div><dt>生物多様性</dt><dd>${world.biodiversity.toFixed(0)}</dd></div>
+        <div><dt>生命段階</dt><dd>${["生命前", "原始生命", "複雑な生命", "名前を持つ生命"][world.lifeLevel] || "不明"}</dd></div>
+      </dl>
+    `;
+
+    civilizationState.innerHTML = `
+      <dl>
+        <div><dt>共同体</dt><dd>${s.name}</dd></div>
+        <div><dt>段階</dt><dd>${s.stage}</dd></div>
+        <div><dt>人口</dt><dd>${Math.floor(s.population).toLocaleString()}</dd></div>
+        <div><dt>技術</dt><dd>${s.technology}</dd></div>
+        <div><dt>安定度</dt><dd>${Math.floor(s.stability)}</dd></div>
+        <div><dt>食料</dt><dd>${Math.floor(s.food)}</dd></div>
+        <div><dt>資源</dt><dd>${Math.floor(s.resources)}</dd></div>
+        <div><dt>知識</dt><dd>${Math.floor(s.knowledge)}</dd></div>
+        <div><dt>産業</dt><dd>${Math.floor(s.industry)}</dd></div>
+        <div><dt>医療</dt><dd>${Math.floor(s.medicine)}</dd></div>
+      </dl>
+    `;
+
+    castState.innerHTML = living.length
+      ? living
+          .map(
+            (person) => `
+              <article class="cast-card">
+                <strong>${ICONS[person.species]} ${person.name}</strong>
+                <span>${person.role}・${person.mood}</span>
+                <small>${person.relation}</small>
+              </article>
+            `
+          )
+          .join("")
+      : "<p>名前付き個体はまだいません。</p>";
+
+    worldSummary.textContent =
+      world.phase === "extinction"
+        ? "世界は終焉を迎えています。"
+        : `${s.stage}。${s.culture}文化を持つ。`;
   }
 
   function render() {
     drawWorld();
     renderDrama();
-    renderInfo();
+    renderPanels();
     renderNews();
   }
 
   function reset(seed) {
-    world = createWorld(seed >>> 0 || 1);
-    dramaAutoElapsed = 0;
-    seedInput.value = String(world.seed);
+    const safeSeed = Number(seed) >>> 0 || randomSeed();
+    world = createWorld(safeSeed);
+    seedInput.value = String(safeSeed);
     running = true;
     pauseBtn.textContent = "一時停止";
+    dramaAutoElapsed = 0;
     render();
   }
 
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastTime) / 1000);
+    lastTime = now;
+
+    update(dt);
+
+    dramaAutoElapsed += dt;
+
+    if (
+      world &&
+      world.dramas.length > 1 &&
+      dramaAutoElapsed >= DRAMA_AUTO_SECONDS
+    ) {
+      world.dramaIndex =
+        (world.dramaIndex + 1) % world.dramas.length;
+      dramaAutoElapsed = 0;
+    }
+
+    render();
+    requestAnimationFrame(frame);
+  }
+
   newWorldBtn.addEventListener("click", () => {
-    const input = Number(seedInput.value.trim());
-    reset(Number.isFinite(input) && input > 0 ? input : randomSeed());
+    const inputSeed = Number(seedInput.value);
+    reset(inputSeed || randomSeed());
   });
+
   pauseBtn.addEventListener("click", () => {
     running = !running;
     pauseBtn.textContent = running ? "一時停止" : "再開";
   });
+
   nextDramaBtn.addEventListener("click", () => {
-    if (!world.dramas.length) return;
-    world.dramaIndex = (world.dramaIndex + 1) % world.dramas.length;
+    if (!world || !world.dramas.length) return;
+
+    world.dramaIndex =
+      (world.dramaIndex + 1) % world.dramas.length;
     dramaAutoElapsed = 0;
     renderDrama();
   });
+
   clearNewsBtn.addEventListener("click", () => {
-    if (world.news.length > 12) world.news = world.news.slice(-12);
+    if (!world) return;
+    world.news = [];
     renderNews();
   });
-  canvas.addEventListener("click", e => {
+
+  canvas.addEventListener("click", (event) => {
+    if (!world) return;
+
     const rect = canvas.getBoundingClientRect();
-    const x = Math.floor((e.clientX - rect.left) / rect.width * COLS);
-    const y = Math.floor((e.clientY - rect.top) / rect.height * ROWS);
-    world.selectedCell = {x: clamp(x,0,COLS-1), y: clamp(y,0,ROWS-1)};
-    drawWorld();
+    const x = Math.floor(
+      ((event.clientX - rect.left) / rect.width) * COLS
+    );
+    const y = Math.floor(
+      ((event.clientY - rect.top) / rect.height) * ROWS
+    );
+
+    world.selectedCell = { x, y };
+
+    const character = world.cast.find(
+      (person) => person.alive && person.x === x && person.y === y
+    );
+
+    if (character) {
+      addDrama(
+        world,
+        "society",
+        [character],
+        `${character.name}は${character.mood}な様子で、${character.relation}。`,
+        `${character.name}を観測`
+      );
+    }
   });
 
-  function loop(now) {
-    const dt = Math.min(.05, (now - lastTime) / 1000);
-    lastTime = now;
-    accumulator += dt;
-    dramaAutoElapsed += dt;
-    update(dt);
-
-    if (world?.dramas.length > 1 && dramaAutoElapsed >= DRAMA_AUTO_SECONDS) {
-      dramaAutoElapsed = 0;
-      world.dramaIndex = (world.dramaIndex + 1) % world.dramas.length;
-      renderDrama();
-    }
-
-    if (accumulator > .12) {
-      accumulator = 0;
-      render();
-    } else {
-      drawWorld();
-    }
-    requestAnimationFrame(loop);
-  }
-
   reset(randomSeed());
-  requestAnimationFrame(loop);
+  requestAnimationFrame(frame);
 })();
