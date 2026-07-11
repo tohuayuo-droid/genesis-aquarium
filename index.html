@@ -7,71 +7,90 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <h1>Genesis Aquarium</h1>
-      <p>世界の栄枯盛衰を、ただ観測する。</p>
-    </div>
-    <div class="controls">
-      <label>Seed <input id="seedInput" inputmode="numeric" /></label>
-      <button id="newWorldBtn">新しい世界</button>
-      <button id="pauseBtn">一時停止</button>
-      <label>速度
-        <select id="speedSelect">
-          <option value="1">x1</option>
-          <option value="2">x2</option>
-          <option value="5" selected>x5</option>
-          <option value="12">x12</option>
-        </select>
-      </label>
-    </div>
-  </header>
-
-  <main class="layout">
-    <section class="left-column">
-      <section class="panel world-panel">
-        <div class="panel-title-row">
-          <h2>世界マップ</h2>
-          <div id="worldSummary" class="world-summary"></div>
-        </div>
-        <canvas id="worldCanvas" width="960" height="560" aria-label="世界マップ"></canvas>
-        <div class="legend">
-          <span>🌊 海</span><span>🌿 草原</span><span>🌲 森</span><span>⛰ 山</span><span>🏠 集落</span><span>☄ 災害</span>
-        </div>
-      </section>
-
-      <section class="panel drama-panel">
-        <div class="panel-title-row">
-          <h2>いま起きているドラマ</h2>
-          <button id="nextDramaBtn" class="subtle">次のドラマ</button>
-        </div>
-        <div id="dramaScene" class="drama-scene"></div>
-      </section>
-
-      <section class="info-grid">
-        <article class="panel compact">
-          <h2>世界の状態</h2>
-          <div id="worldState"></div>
-        </article>
-        <article class="panel compact">
-          <h2>文明・共同体</h2>
-          <div id="civilizationState"></div>
-        </article>
-        <article class="panel compact">
-          <h2>注目キャラクター</h2>
-          <div id="castState"></div>
-        </article>
-      </section>
-    </section>
-
-    <aside class="panel news-panel">
-      <div class="panel-title-row sticky-title">
-        <h2>世界ニュース</h2>
-        <button id="clearNewsBtn" class="subtle">表示整理</button>
+  <div class="stream-shell">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Genesis Aquarium</h1>
+        <p>世界の栄枯盛衰を、ただ観測する。</p>
       </div>
-      <div id="newsFeed" class="news-feed"></div>
-    </aside>
-  </main>
+
+      <div class="controls">
+        <label>Seed <input id="seedInput" inputmode="numeric" /></label>
+        <button id="newWorldBtn">新しい世界</button>
+        <button id="pauseBtn">一時停止</button>
+        <label>速度
+          <select id="speedSelect">
+            <option value="1">x1</option>
+            <option value="2">x2</option>
+            <option value="5" selected>x5</option>
+            <option value="12">x12</option>
+          </select>
+        </label>
+      </div>
+    </header>
+
+    <main class="broadcast-layout">
+      <section class="main-stage">
+        <section class="panel world-panel">
+          <div class="panel-title-row">
+            <h2>世界マップ</h2>
+            <div id="worldSummary" class="world-summary"></div>
+          </div>
+
+          <div class="canvas-frame">
+            <canvas id="worldCanvas" width="960" height="560" aria-label="世界マップ"></canvas>
+          </div>
+
+          <div class="legend">
+            <span>🌊 海</span>
+            <span>🌿 草原</span>
+            <span>🌲 森</span>
+            <span>⛰ 山</span>
+            <span>🏠 集落</span>
+            <span>☄ 災害</span>
+          </div>
+        </section>
+
+        <section class="bottom-stage">
+          <section class="panel drama-panel">
+            <div class="panel-title-row">
+              <h2>いま起きているドラマ</h2>
+              <button id="nextDramaBtn" class="subtle">次のドラマ</button>
+            </div>
+            <div id="dramaScene" class="drama-scene"></div>
+          </section>
+
+          <section class="info-grid">
+            <article class="panel compact">
+              <h2>世界の状態</h2>
+              <div id="worldState"></div>
+            </article>
+
+            <article class="panel compact">
+              <h2>文明・共同体</h2>
+              <div id="civilizationState"></div>
+            </article>
+
+            <article class="panel compact cast-panel">
+              <h2>注目キャラクター</h2>
+              <div id="castState"></div>
+            </article>
+          </section>
+        </section>
+      </section>
+
+      <aside class="panel news-panel">
+        <div class="panel-title-row sticky-title">
+          <div>
+            <h2>世界ニュース</h2>
+            <p>この世界で起きたこと</p>
+          </div>
+          <button id="clearNewsBtn" class="subtle">表示整理</button>
+        </div>
+        <div id="newsFeed" class="news-feed"></div>
+      </aside>
+    </main>
+  </div>
 
   <script src="main.js"></script>
 </body>
