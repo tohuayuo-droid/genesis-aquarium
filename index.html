@@ -4,80 +4,59 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Genesis Aquarium</title>
-  <link rel="stylesheet" href="style.css?v=20260711-3" />
+  <link rel="stylesheet" href="style.css?v=ui-v1" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <h1>Genesis Aquarium</h1>
-        <p>世界の終焉を、ただ観測する。</p>
+        <p>世界の栄枯盛衰を、ただ観測する。</p>
       </div>
       <div id="worldSummary" class="world-summary"></div>
     </header>
 
     <main class="screen-grid">
-      <section class="left-stage">
+      <section class="main-stage">
         <section class="panel world-panel">
-          <div class="panel-kicker">
-            <span>WORLD</span>
-            <strong>世界マップ</strong>
-          </div>
-
+          <div class="panel-heading"><span>WORLD</span><strong>世界マップ</strong></div>
           <div class="canvas-wrap">
             <canvas id="worldCanvas" width="960" height="560" aria-label="世界マップ"></canvas>
           </div>
-
           <div class="legend">
-            <span>🌊 海</span>
-            <span>🌿 草原</span>
-            <span>🌲 森</span>
-            <span>⛰ 山</span>
-            <span>🌋 火山</span>
-            <span>❄ 雪原</span>
-            <span>🏠 集落</span>
+            <span>🌊 海</span><span>🌿 草原</span><span>🌲 森</span>
+            <span>⛰ 山</span><span>🏠 集落</span><span>☄ 災害</span>
           </div>
         </section>
 
-        <section class="panel drama-panel">
-          <div class="panel-kicker drama-title">
-            <span>NOW PLAYING</span>
-            <strong>いま起きているドラマ</strong>
-          </div>
+        <section class="middle-row">
+          <section class="panel drama-panel">
+            <div class="panel-heading"><span>NOW PLAYING</span><strong>いま起きているドラマ</strong></div>
+            <div id="dramaScene" class="drama-scene"></div>
+          </section>
 
-          <div id="dramaScene" class="drama-scene"></div>
+          <section class="panel cast-panel">
+            <div class="panel-heading"><span>FOCUS</span><strong>注目キャラクター</strong></div>
+            <div id="castState"></div>
+          </section>
         </section>
 
-        <section class="stats-grid">
-          <article class="panel stat-panel">
+        <section class="status-row">
+          <article class="panel status-panel">
             <h2>世界の状態</h2>
             <div id="worldState"></div>
           </article>
 
-          <article class="panel stat-panel">
+          <article class="panel status-panel civilization-panel">
             <h2>文明・共同体</h2>
             <div id="civilizationState"></div>
-          </article>
-
-          <article class="panel stat-panel cast-panel">
-            <h2>注目キャラクター</h2>
-            <div id="castState"></div>
           </article>
         </section>
       </section>
 
       <aside class="panel chronicle-panel">
-        <div class="chronicle-title">
-          <span>👑 CHRONICLE</span>
-          <strong>世界年代記</strong>
-        </div>
-
+        <div class="chronicle-heading"><span>CHRONICLE</span><strong>世界年代記</strong></div>
         <div id="newsFeed" class="news-feed"></div>
-
-        <footer class="world-id">
-          <span>🌐 観測中の世界</span>
-          <strong id="streamWorldId">Genesis</strong>
-        </footer>
       </aside>
     </main>
   </div>
@@ -97,6 +76,5 @@
   </div>
 
   <script src="main.js"></script>
-  <script src="ui-enhancements.js"></script>
 </body>
 </html>
