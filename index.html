@@ -7,64 +7,77 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="stream-shell">
+  <div class="app-shell">
     <header class="topbar">
       <div class="brand">
         <h1>Genesis Aquarium</h1>
-        <p>世界の栄枯盛衰を、ただ観測する。</p>
+        <p>世界の終焉を、ただ観測する。</p>
       </div>
       <div id="worldSummary" class="world-summary"></div>
     </header>
 
-    <main class="broadcast-layout">
-      <section class="main-stage">
+    <main class="screen-grid">
+      <section class="left-stage">
         <section class="panel world-panel">
-          <div class="section-label">WORLD</div>
-          <div class="canvas-frame">
+          <div class="panel-kicker">
+            <span>WORLD</span>
+            <strong>世界マップ</strong>
+          </div>
+
+          <div class="canvas-wrap">
             <canvas id="worldCanvas" width="960" height="560" aria-label="世界マップ"></canvas>
           </div>
+
           <div class="legend">
             <span>🌊 海</span>
             <span>🌿 草原</span>
             <span>🌲 森</span>
             <span>⛰ 山</span>
+            <span>🌋 火山</span>
+            <span>❄ 雪原</span>
             <span>🏠 集落</span>
-            <span>☄ 災害</span>
           </div>
         </section>
 
         <section class="panel drama-panel">
-          <div class="drama-heading">
+          <div class="panel-kicker drama-title">
             <span>NOW PLAYING</span>
-            <h2>いま起きているドラマ</h2>
+            <strong>いま起きているドラマ</strong>
           </div>
+
           <div id="dramaScene" class="drama-scene"></div>
         </section>
 
-        <section class="info-grid">
-          <article class="panel compact">
+        <section class="stats-grid">
+          <article class="panel stat-panel">
             <h2>世界の状態</h2>
             <div id="worldState"></div>
           </article>
 
-          <article class="panel compact">
+          <article class="panel stat-panel">
             <h2>文明・共同体</h2>
             <div id="civilizationState"></div>
           </article>
 
-          <article class="panel compact cast-panel">
+          <article class="panel stat-panel cast-panel">
             <h2>注目キャラクター</h2>
             <div id="castState"></div>
           </article>
         </section>
       </section>
 
-      <aside class="panel news-panel">
-        <div class="news-heading">
-          <span>CHRONICLE</span>
-          <h2>世界年代記</h2>
+      <aside class="panel chronicle-panel">
+        <div class="chronicle-title">
+          <span>👑 CHRONICLE</span>
+          <strong>世界年代記</strong>
         </div>
+
         <div id="newsFeed" class="news-feed"></div>
+
+        <footer class="world-id">
+          <span>🌐 観測中の世界</span>
+          <strong id="streamWorldId">Genesis</strong>
+        </footer>
       </aside>
     </main>
   </div>
@@ -84,5 +97,6 @@
   </div>
 
   <script src="main.js"></script>
+  <script src="ui-enhancements.js"></script>
 </body>
 </html>
